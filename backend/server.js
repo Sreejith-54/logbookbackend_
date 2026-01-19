@@ -14,8 +14,8 @@ const pool = new Pool({
     user: process.env.DB_USER || 'postgres',
     host: process.env.DB_HOST || 'localhost',
     database: process.env.DB_NAME || 'attendance_db',
-    password: process.env.DB_PASSWORD || 'Sreejithm11',
-    port: 5110,
+    password: process.env.DB_PASSWORD || 'newpassword',
+    port: 5432,
 });
 
 const JWT_SECRET = process.env.JWT_SECRET || 'supreme_secret_999';
