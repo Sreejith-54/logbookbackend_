@@ -201,7 +201,7 @@ app.post('/api/admin/faculty-login', authenticateToken, authorize(['admin']), as
 });
 app.put('/api/admin/faculty/:userId', authenticateToken, authorize(['admin']), async (req, res) => {
     const { name, auth_key, dept_id } = req.body;
-    await pool.query('UPDATE faculty_profiles SET faculty_name=$1, authorization_key=$2, dept_id=$3 WHERE user_id=$4', [name, auth_key, dept_id, req.params.userId]);
+    await pool.query('UPDATE faculty_profiles SET faculty_name=$1, authorization_key=$2, dept_id=$3 WHERE id=$4', [name, auth_key, dept_id, req.params.userId]);
     res.json({ message: "Faculty Profile Updated" });
 });
 
