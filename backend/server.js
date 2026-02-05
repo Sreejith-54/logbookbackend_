@@ -13,7 +13,7 @@ app.use(express.json());
 const pool = new Pool({
     user: process.env.DB_USER || 'postgres',
     host: process.env.DB_HOST || 'localhost',
-    database: process.env.DB_NAME || 'attend',
+    database: process.env.DB_NAME || 'attendance_db',
     password: process.env.DB_PASSWORD || 'postgres',
     port: 5432,
 });
@@ -69,13 +69,13 @@ app.get('/api/admin/depts', authenticateToken, async (req, res) => {
     res.json(result.rows);
 });
 
-app.put('/api/admin/depts/:id', authenticateToken, authorize(['admin']), async (req, res) => {
+app.post('/api/admin/edit/depts/:id', authenticateToken, authorize(['admin']), async (req, res) => {
     const { name, code } = req.body;
     await pool.query('UPDATE departments SET dept_name = $1, dept_code = $2 WHERE id = $3', [name, code, req.params.id]);
     res.json({ message: "Department Updated" });
 });
 
-app.delete('/api/admin/depts/:id', authenticateToken, authorize(['admin']), async (req, res) => {
+app.post('/api/admin/delete/depts/:id', authenticateToken, authorize(['admin']), async (req, res) => {
     await pool.query('DELETE FROM departments WHERE id = $1', [req.params.id]);
     res.json({ message: "Department Deleted" });
 });
@@ -92,13 +92,13 @@ app.get('/api/admin/batches', authenticateToken, async (req, res) => {
     res.json(result.rows);
 });
 
-app.put('/api/admin/batches/:id', authenticateToken, authorize(['admin']), async (req, res) => {
+app.post('/api/admin/edit/batches/:id', authenticateToken, authorize(['admin']), async (req, res) => {
     const { start_year, end_year, batch_name } = req.body;
     await pool.query('UPDATE batches SET start_year=$1, end_year=$2, batch_name=$3 WHERE id=$4', [start_year, end_year, batch_name, req.params.id]);
     res.json({ message: "Batch Updated" });
 });
 
-app.delete('/api/admin/batches/:id', authenticateToken, authorize(['admin']), async (req, res) => {
+app.post('/api/admin/delete/batches/:id', authenticateToken, authorize(['admin']), async (req, res) => {
     await pool.query('DELETE FROM batches WHERE id = $1', [req.params.id]);
     res.json({ message: "Batch Deleted" });
 });
@@ -115,13 +115,13 @@ app.get('/api/admin/sections', authenticateToken, async (req, res) => {
     res.json(result.rows);
 });
 
-app.put('/api/admin/sections/:id', authenticateToken, authorize(['admin']), async (req, res) => {
+app.post('/api/admin/edit/sections/:id', authenticateToken, authorize(['admin']), async (req, res) => {
     const { section_name } = req.body;
     await pool.query('UPDATE sections SET section_name = $1 WHERE id = $2', [section_name, req.params.id]);
     res.json({ message: "Section Updated" });
 });
 
-app.delete('/api/admin/sections/:id', authenticateToken, authorize(['admin']), async (req, res) => {
+app.post('/api/admin/delete/sections/:id', authenticateToken, authorize(['admin']), async (req, res) => {
     await pool.query('DELETE FROM sections WHERE id = $1', [req.params.id]);
     res.json({ message: "Section Deleted" });
 });
@@ -199,19 +199,19 @@ app.post('/api/admin/faculty-login', authenticateToken, authorize(['admin']), as
         client.release();
     }
 });
-app.put('/api/admin/faculty/:userId', authenticateToken, authorize(['admin']), async (req, res) => {
+app.post('/api/admin/edit/faculty/:userId', authenticateToken, authorize(['admin']), async (req, res) => {
     const { name, auth_key, dept_id } = req.body;
     await pool.query('UPDATE faculty_profiles SET faculty_name=$1, authorization_key=$2, dept_id=$3 WHERE id=$4', [name, auth_key, dept_id, req.params.userId]);
     res.json({ message: "Faculty Profile Updated" });
 });
 
 
-app.delete('/api/admin/faculty/:profileId', authenticateToken, authorize(['admin']), async (req, res) => {
+app.post('/api/admin/delete/faculty/:profileId', authenticateToken, authorize(['admin']), async (req, res) => {
     const client = await pool.connect();
     try {
         await client.query('BEGIN');
 
-        // 1. Get the user_id before we delete the profile
+
         const profileRes = await client.query(
             'SELECT user_id FROM faculty_profiles WHERE id = $1',
             [req.params.profileId]
@@ -251,9 +251,9 @@ app.delete('/api/admin/faculty/:profileId', authenticateToken, authorize(['admin
 
 // ADMIN: Reset Password for CR or Faculty
 app.post('/api/admin/reset-password', authenticateToken, authorize(['admin']), async (req, res) => {
-    const { userId, newPassword } = req.body;
+    const { email, newPassword } = req.body;
 
-    if (!userId || !newPassword) {
+    if (!email || !newPassword) {
         return res.status(400).json({ error: "User ID and New Password are required" });
     }
 
@@ -261,8 +261,8 @@ app.post('/api/admin/reset-password', authenticateToken, authorize(['admin']), a
         const hash = await bcrypt.hash(newPassword, 10);
 
         const result = await pool.query(
-            'UPDATE users SET password_hash = $1 WHERE id = $2 AND role IN (\'faculty\', \'cr\') RETURNING id',
-            [hash, userId]
+            'UPDATE users SET password_hash = $1 WHERE email = $2 AND role IN (\'faculty\', \'cr\') RETURNING email',
+            [hash, email]
         );
 
         if (result.rowCount === 0) {
@@ -286,15 +286,88 @@ app.get('/api/admin/students', authenticateToken, async (req, res) => {
     res.json(result.rows);
 });
 
-app.put('/api/admin/students/:id', authenticateToken, authorize(['admin']), async (req, res) => {
+app.post('/api/admin/edit/students/:id', authenticateToken, authorize(['admin']), async (req, res) => {
     const { name, roll, email, section_id } = req.body;
-    await pool.query('UPDATE students SET full_name=$1, roll_number=$2, email=$3, section_id=$4 WHERE id=$5', [name, roll, email, section_id, req.params.id]);
-    res.json({ message: "Student Updated" });
+    const studentId = req.params.id;
+    const client = await pool.connect();
+
+    try {
+        await client.query('BEGIN');
+
+        await client.query(
+            'UPDATE students SET full_name=$1, roll_number=$2, email=$3, section_id=$4 WHERE id=$5',
+            [name, roll, email, section_id, studentId]
+        );
+        await client.query(
+            'UPDATE users SET email=$1 WHERE student_id=$2',
+            [email, studentId]
+        );
+
+        await client.query('COMMIT');
+
+        res.json({ message: "Student Updated Successfully" });
+
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error("Update Error:", err);
+        res.status(500).json({ error: "Server Error" });
+
+    } finally {
+        client.release();
+    }
 });
 
-app.delete('/api/admin/students/:id', authenticateToken, authorize(['admin']), async (req, res) => {
-    await pool.query('DELETE FROM students WHERE id = $1', [req.params.id]);
-    res.json({ message: "Student Deleted" });
+app.post('/api/admin/delete/students/:id', authenticateToken, authorize(['admin']), async (req, res) => {
+    const studentId = req.params.id;
+    const client = await pool.connect();
+
+    try {
+        await client.query('BEGIN');
+
+        const userResult = await client.query(
+            'SELECT id FROM users WHERE student_id = $1',
+            [studentId]
+        );
+
+        let userId = null;
+        if (userResult.rows.length > 0) {
+            userId = userResult.rows[0].id;
+
+            await client.query(
+                'UPDATE attendance_sessions SET marked_by_user_id = NULL WHERE marked_by_user_id = $1',
+                [userId]
+            );
+        }
+
+
+        await client.query(
+            'DELETE FROM attendance_records WHERE student_id = $1',
+            [studentId]
+        );
+
+       
+        await client.query(
+            'DELETE FROM users WHERE student_id = $1',
+            [studentId]
+        );
+
+   
+        await client.query(
+            'DELETE FROM students WHERE id = $1',
+            [studentId]
+        );
+
+        await client.query('COMMIT');
+
+        res.json({ message: "Student and related records deleted successfully" });
+
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error(err);
+        res.status(500).json({ error: "Server Error" });
+    } finally {
+        client.release();
+    }
 });
 
 app.post('/api/admin/promote-cr', authenticateToken, authorize(['admin']), async (req, res) => {
@@ -331,7 +404,7 @@ app.post('/api/admin/promote-cr', authenticateToken, authorize(['admin']), async
     }
 });
 
-app.delete('/api/admin/demote-cr/:studentId', authenticateToken, authorize(['admin']), async (req, res) => {
+app.post('/api/admin/demote-cr/:studentId', authenticateToken, authorize(['admin']), async (req, res) => {
     try {
         // Instead of DELETING (which breaks Foreign Keys), we just downgrade the role
         const result = await pool.query(
@@ -361,7 +434,7 @@ app.get('/api/admin/courses', authenticateToken, async (req, res) => {
 });
 
 
-app.put('/api/admin/courses/:code', authenticateToken, authorize(['admin']), async (req, res) => {
+app.post('/api/admin/edit/courses/:code', authenticateToken, authorize(['admin']), async (req, res) => {
     // Added dept_id to the destructuring and query
     const { name, credits, dept_id } = req.body;
 
@@ -376,7 +449,7 @@ app.put('/api/admin/courses/:code', authenticateToken, authorize(['admin']), asy
         res.status(500).json({ error: "Database error" });
     }
 });
-app.delete('/api/admin/courses/:code', authenticateToken, authorize(['admin']), async (req, res) => {
+app.post('/api/admin/delete/courses/:code', authenticateToken, authorize(['admin']), async (req, res) => {
     await pool.query('DELETE FROM courses WHERE course_code = $1', [req.params.code]);
     res.json({ message: "Course Deleted" });
 });
@@ -397,19 +470,40 @@ app.get('/api/common/timetable', authenticateToken, async (req, res) => {
     res.json(result.rows);
 });
 
-app.put('/api/admin/timetable/:id', authenticateToken, authorize(['admin']), async (req, res) => {
+app.post('/api/admin/edit/timetable/:id', authenticateToken, authorize(['admin']), async (req, res) => {
     const { day, slot, course_code, faculty_id, room } = req.body;
     await pool.query('UPDATE timetable SET day=$1, slot_number=$2, course_code=$3, faculty_profile_id=$4, room_info=$5 WHERE id=$6', [day, slot, course_code, faculty_id, room, req.params.id]);
     res.json({ message: "Slot Updated" });
 });
 
-app.delete('/api/admin/timetable/:id', authenticateToken, authorize(['admin']), async (req, res) => {
-    await pool.query('DELETE FROM timetable WHERE id = $1', [req.params.id]);
-    res.json({ message: "Slot Deleted" });
+app.post('/api/admin/delete/timetable/:id', authenticateToken, authorize(['admin']), async (req, res) => {
+    const timetableId = req.params.id;
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        await client.query(
+            'UPDATE attendance_sessions SET timetable_id = NULL WHERE timetable_id = $1',
+            [timetableId]
+        );       
+        await client.query(
+            'DELETE FROM timetable WHERE id = $1',
+            [timetableId]
+        );
+        await client.query('COMMIT');
+        res.json({ message: "Timetable deleted and sessions preserved" });
+
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error(err);
+        res.status(500).json({ error: "Delete failed" });
+    } finally {
+        client.release();
+    }
 });
 
 
-app.put('/api/faculty/regen-token', authenticateToken, authorize(['faculty']), async (req, res) => {
+app.post('/api/faculty/regen-token', authenticateToken, authorize(['faculty']), async (req, res) => {
     const newToken = generate6DigitToken();
     await pool.query('UPDATE faculty_profiles SET authorization_key = $1 WHERE user_id = $2', [newToken, req.user.id]);
     res.json({ message: "New Token Generated", token: newToken });
@@ -608,14 +702,11 @@ app.get('/api/common/timetable-by-class', authenticateToken, async (req, res) =>
         let section_id = req.query.section_id;
         let semester = req.query.semester;
 
-        // Logic: If parameters are NOT provided, derive them from the Logged-in CR/Student
         if (!section_id || !semester) {
 
             if (!req.user.student_id) {
                 return res.status(403).json({ error: "Not a student/CR account, and no parameters provided." });
             }
-
-            // Fetch Section (from Student table) and Semester (from User table)
             const contextSql = `
                 SELECT s.section_id, u.semester 
                 FROM users u
@@ -632,8 +723,6 @@ app.get('/api/common/timetable-by-class', authenticateToken, async (req, res) =>
             section_id = contextRes.rows[0].section_id;
             semester = contextRes.rows[0].semester;
         }
-
-        // --- Main Timetable Query ---
         const sql = `
             SELECT 
                 t.*,
@@ -641,8 +730,7 @@ app.get('/api/common/timetable-by-class', authenticateToken, async (req, res) =>
                 f.faculty_name
             FROM timetable t
             JOIN courses c ON t.course_code = c.course_code
-            -- Updated to join on Profile ID based on your new schema
-            JOIN faculty_profiles f ON t.faculty_profile_id = f.id
+            LEFT JOIN faculty_profiles f ON t.faculty_profile_id = f.id
             WHERE t.section_id = $1 AND t.semester = $2
             ORDER BY t.day, t.slot_number
         `;
@@ -713,7 +801,7 @@ app.get('/api/cr/students-by-studentid', authenticateToken, authorize(['cr', 'ad
 
 
 
-app.put('/api/faculty/verify', authenticateToken, authorize(['cr', 'faculty']), async (req, res) => {
+app.post('/api/faculty/verify', authenticateToken, authorize(['cr', 'faculty']), async (req, res) => {
     const { token, timetable_id } = req.body;
 
     try {
@@ -835,6 +923,7 @@ app.get('/api/admin/daily-attendance-overview', authenticateToken, async (req, r
                 -- Aggregated Counts (Subqueries for efficiency)
                 (SELECT COUNT(*)::int FROM attendance_records r WHERE r.session_id = sess.id AND LOWER(r.status) = 'present') AS present_count,
                 (SELECT COUNT(*)::int FROM attendance_records r WHERE r.session_id = sess.id AND LOWER(r.status) = 'absent') AS absent_count,
+                (SELECT COUNT(*)::int FROM attendance_records r WHERE r.session_id = sess.id AND LOWER(r.status) = 'late') AS late_count,
                 (SELECT COUNT(*)::int FROM attendance_records r WHERE r.session_id = sess.id) AS total_count
 
             FROM timetable t
@@ -871,6 +960,7 @@ app.get('/api/admin/daily-attendance-overview', authenticateToken, async (req, r
 
 
 
+
 const groupTimetableData = (rows) => {
     const grouped = rows.reduce((acc, row) => {
         const { full_class_title, ...slotDetails } = row;
@@ -887,16 +977,12 @@ const groupTimetableData = (rows) => {
 
     return [grouped];
 };
-
 app.get('/api/faculty/my-schedule', authenticateToken, authorize(['faculty', 'admin']), async (req, res) => {
     try {
         let targetProfileId;
 
         if (req.query.faculty_id) {
-
-            if (req.user.role !== 'admin') {
-                return res.status(403).json({ error: "Access Denied" });
-            }
+            
             targetProfileId = req.query.faculty_id;
         } else {
 
@@ -1116,7 +1202,7 @@ app.get('/api/faculty/auth-key', authenticateToken, authorize(['faculty']), asyn
 });
 
 // Update Faculty's authorization key
-app.put('/api/faculty/auth-key', authenticateToken, authorize(['faculty']), async (req, res) => {
+app.post('/api/faculty/auth-key', authenticateToken, authorize(['faculty']), async (req, res) => {
     const { authorization_key } = req.body;
 
     try {
@@ -1427,9 +1513,7 @@ app.get('/api/attendance/periodic', authenticateToken, authorize(['faculty', 'ad
 });
 
 
-// ==========================================
-// ATTENDANCE SHORTAGE ENDPOINT
-// ==========================================
+
 app.get('/api/admin/attendance-shortage', authenticateToken, async (req, res) => {
     const { section_id, course_code, semester, threshold, start_date, end_date } = req.query;
 
